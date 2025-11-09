@@ -1,0 +1,16 @@
+{
+  "compatibility_date": "2025-10-08",
+  "main": "src/index.ts",
+  "name": "ssf-db-analytics-history",
+  "upload_source_maps": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "fba28d3a-b40f-411d-9c05-94c8e20a054f",
+      "database_name": "ssf_history"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
