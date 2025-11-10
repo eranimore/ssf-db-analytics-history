@@ -93,7 +93,7 @@ export default {
     
     // Handle GET requests to view sessions
     if (request.method === "GET" && url.pathname === "/api/sessions") {
-      const stmt = env.DB.prepare("SELECT * FROM SESSIONS_SCHEDULE_HISTORY LIMIT 100");
+      const stmt = env.DB.prepare("SELECT * FROM SESSIONS_SCHEDULE_HISTORY ORDER BY SESSION_DATETIME DESC LIMIT 1000");
       const { results } = await stmt.all();
       
       return new Response(JSON.stringify(results, null, 2), {
