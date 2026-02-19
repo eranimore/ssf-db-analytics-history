@@ -1,4 +1,5 @@
 import { renderHtml } from "./renderHtml";
+import { seoContentForDatesHighlights } from "./ssf_seo_input_for_posts";
 
 interface SessionScheduleHistory {
   POOL_ID?: string | null;
@@ -101,6 +102,11 @@ export default {
           "content-type": "application/json",
         },
       });
+    }
+    
+    // Handle GET requests for SEO content - dates vacancies
+    if (request.method === "GET" && url.pathname === "/api/ssf-seo-post-content/dates-vacancies") {
+      return await seoContentForDatesHighlights(request, env);
     }
     
     // Default: show comments
