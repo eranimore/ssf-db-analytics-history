@@ -1,5 +1,6 @@
 import { renderHtml } from "./renderHtml";
 import { seoContentForDatesHighlights } from "./ssf_seo_input_for_posts";
+import { ingestMetrics, getMetricsData, renderMetricsDashboard } from "./ssf_metrics_dashboard";
 
 interface SessionScheduleHistory {
   POOL_ID?: string | null;
@@ -108,7 +109,24 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/ssf-seo-post-content/dates-vacancies") {
       return await seoContentForDatesHighlights(request, env);
     }
-    
+
+    // Handle metrics ingestion (replaces the CloudWatch push) and dashboard
+    if (request.method === "POST" && url.pathname === "/api/metrics/ingest") {
+      return await ingestMetrics(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/metrics/data") {
+      return await getMetricsData(request, env);
+    }
+
+    if (request.method === "GET" && url.pathname === "/dashboard") {
+      return await renderMetricsDashboard();
+    }
+
+    if (request.method === "GET" && url.pathname === "/metrics_dashboard_client.js") {
+      return await env.ASSETS.fetch(request);
+    }
+
     // Default: show comments
     const stmt = env.DB.prepare("SELECT * FROM comments LIMIT 3");
     const { results } = await stmt.all();

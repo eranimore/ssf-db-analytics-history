@@ -10,6 +10,10 @@
       "database_name": "ssf_history"
     }
   ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
   "observability": {
     "enabled": true
   }
