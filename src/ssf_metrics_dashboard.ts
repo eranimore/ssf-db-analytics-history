@@ -13,6 +13,7 @@ interface MetricRow {
 
 const MAX_HOURS = 24 * 28; // 4 weeks
 const DEFAULT_HOURS = 168; // 1 week, matches the widest CloudWatch preset button
+const RETENTION_MONTHS = 12;
 
 export async function ingestMetrics(request: Request, env: any): Promise<Response> {
 	const key = request.headers.get("X-Metrics-Key");
@@ -61,6 +62,14 @@ export async function ingestMetrics(request: Request, env: any): Promise<Respons
 				row.recorded_at
 			);
 		});
+
+		// Prune rows past the retention window as part of the same batch, so
+		// cleanup rides along with each ingest call and needs no separate schedule.
+		const retentionCutoff = new Date();
+		retentionCutoff.setMonth(retentionCutoff.getMonth() - RETENTION_MONTHS);
+		statements.push(
+			env.DB.prepare(`DELETE FROM METRICS_HISTORY WHERE RECORDED_AT < ?`).bind(retentionCutoff.toISOString())
+		);
 
 		const results = await env.DB.batch(statements);
 
