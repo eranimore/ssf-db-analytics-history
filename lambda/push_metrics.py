@@ -6,6 +6,12 @@ import json
 import time
 import requests
 
+METRICS_INGEST_URL = "https://ssf-db-analytics-history.eran-more.workers.dev/api/metrics/ingest"
+
+# Flip either of these off to disable that push without touching the rest of the script.
+PUSH_TO_CLOUDWATCH = True
+PUSH_TO_SSF_ANALYTICS = True
+
 def connect_with_retry(retries=3, delay=10):
     for attempt in range(1, retries + 1):
         try:
@@ -25,16 +31,41 @@ def connect_with_retry(retries=3, delay=10):
             else:
                 raise RuntimeError("❌ Failed to connect to the database after multiple attempts.") from e
 
+
+def to_metrics_rows(metric_data, recorded_at):
+    """Flatten CloudWatch-shaped metric_data entries into METRICS_HISTORY rows."""
+    rows = []
+    for item in metric_data:
+        pool_id = None
+        extra_dimension_name = None
+        extra_dimension_value = None
+        for dim in item['Dimensions']:
+            if dim['Name'] == 'POOL_ID':
+                pool_id = dim['Value']
+            else:
+                extra_dimension_name = dim['Name']
+                extra_dimension_value = dim['Value']
+        rows.append({
+            'metric_name': item['MetricName'],
+            'pool_id': pool_id,
+            'dimension_name': extra_dimension_name,
+            'dimension_value': extra_dimension_value,
+            'value': item['Value'],
+            'recorded_at': recorded_at,
+        })
+    return rows
+
+
 def lambda_handler(event, context):
     conn = connect_with_retry()
     cursor = conn.cursor()
-    cloudwatch = boto3.client('cloudwatch')
+    cloudwatch = boto3.client('cloudwatch') if PUSH_TO_CLOUDWATCH else None
     metric_data = []
 
     # 1. Sessions — last 24 hours
     cursor.execute("""
-        SELECT POOL_ID, COUNT(*) 
-        FROM SESSIONS_SCHEDULE 
+        SELECT POOL_ID, COUNT(*)
+        FROM SESSIONS_SCHEDULE
         WHERE SESSION_DATETIME >= NOW() - INTERVAL 1 DAY
         GROUP BY POOL_ID
     """)
@@ -48,8 +79,8 @@ def lambda_handler(event, context):
 
     # 2. Sent Notifications — last 24 hours
     cursor.execute("""
-        SELECT POOL_ID, CHANNEL, COUNT(*) 
-        FROM SENT_NOTIFICATIONS 
+        SELECT POOL_ID, CHANNEL, COUNT(*)
+        FROM SENT_NOTIFICATIONS
         WHERE NOTIFICATION_TIME >= NOW() - INTERVAL 1 DAY
         GROUP BY POOL_ID, CHANNEL
     """)
@@ -66,8 +97,8 @@ def lambda_handler(event, context):
 
     # 3. Email Verifications — last 24 hours
     cursor.execute("""
-        SELECT POOL_ID, COUNT(*) 
-        FROM EMAIL_VERIFICATIONS 
+        SELECT POOL_ID, COUNT(*)
+        FROM EMAIL_VERIFICATIONS
         WHERE CREATED_AT >= NOW() - INTERVAL 1 DAY
         GROUP BY POOL_ID
     """)
@@ -81,10 +112,10 @@ def lambda_handler(event, context):
 
     # 4. User Preferences — last 24 hours
     cursor.execute("""
-        SELECT POOL_ID, IS_ACTIVE, COUNT(*) 
-        FROM USERS_PREFERENCES 
-        WHERE UPDATED_AT >= NOW() - INTERVAL 1 DAY 
-           OR CREATED_AT >= NOW() - INTERVAL 1 DAY 
+        SELECT POOL_ID, IS_ACTIVE, COUNT(*)
+        FROM USERS_PREFERENCES
+        WHERE UPDATED_AT >= NOW() - INTERVAL 1 DAY
+           OR CREATED_AT >= NOW() - INTERVAL 1 DAY
         GROUP BY POOL_ID, IS_ACTIVE
     """)
     for pool_id, is_active, count in cursor.fetchall():
@@ -100,8 +131,8 @@ def lambda_handler(event, context):
 
     # 5. Total Unique Users by POOL_ID
     cursor.execute("""
-        SELECT POOL_ID, COUNT(DISTINCT CHANNEL_USER_IDENTITY) 
-        FROM USERS_PREFERENCES 
+        SELECT POOL_ID, COUNT(DISTINCT CHANNEL_USER_IDENTITY)
+        FROM USERS_PREFERENCES
         GROUP BY POOL_ID
     """)
     for pool_id, count in cursor.fetchall():
@@ -128,12 +159,41 @@ def lambda_handler(event, context):
                 'Unit': 'Count'
             })
 
-    # Push to CloudWatch in batches of 20
-    for i in range(0, len(metric_data), 20):
-        cloudwatch.put_metric_data(
-            Namespace='RailwayApp/Metrics',
-            MetricData=metric_data[i:i+20]
-        )
+    # Push to CloudWatch in batches of 20 (unchanged — a failure here still
+    # raises and fails the run, same as before these two paths were split out).
+    cloudwatch_status = "skipped"
+    if PUSH_TO_CLOUDWATCH:
+        for i in range(0, len(metric_data), 20):
+            cloudwatch.put_metric_data(
+                Namespace='RailwayApp/Metrics',
+                MetricData=metric_data[i:i+20]
+            )
+        cloudwatch_status = "ok"
+        print(f"✅ CloudWatch: pushed {len(metric_data)} metrics")
+
+    # Also push to the new D1-backed metrics dashboard, tagged with a single
+    # shared timestamp for this run. Wrapped in try/except so a hiccup in the
+    # new system (still being validated) can't break the CloudWatch path above.
+    ssf_analytics_status = "skipped"
+    if PUSH_TO_SSF_ANALYTICS:
+        recorded_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        rows = to_metrics_rows(metric_data, recorded_at)
+        try:
+            ingest_response = requests.post(
+                METRICS_INGEST_URL,
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-Metrics-Key': os.environ['METRICS_INGEST_KEY'],
+                },
+                json=rows,
+                timeout=15,
+            )
+            ingest_response.raise_for_status()
+            ssf_analytics_status = "ok"
+            print(f"✅ ssf-analytics: pushed {len(rows)} metrics")
+        except Exception as e:
+            ssf_analytics_status = "FAILED"
+            print(f"⚠️ ssf-analytics: push failed (CloudWatch unaffected): {e}")
 
     cursor.close()
     conn.close()
@@ -141,7 +201,9 @@ def lambda_handler(event, context):
     return {
         'statusCode': 200,
         'body': json.dumps({
-            'message': f"✅ Sent {len(metric_data)} metrics for the last 24 hours",
+            'cloudwatch_status': cloudwatch_status,
+            'ssf_analytics_status': ssf_analytics_status,
+            'metrics_count': len(metric_data),
             'metrics': metric_data
         })
     }
