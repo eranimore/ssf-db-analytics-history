@@ -14,6 +14,12 @@ interface SessionScheduleHistory {
   AREA?: string | null;
 }
 
+// Matches METRICS_HISTORY's retention window (see ssf_metrics_dashboard.ts).
+// At current volume (~10k rows/day combined across pools as of 2026-09) this
+// keeps SESSIONS_SCHEDULE_HISTORY bounded to roughly a year's worth of rows
+// steady-state instead of growing forever.
+const SESSIONS_HISTORY_RETENTION_MONTHS = 12;
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -70,13 +76,22 @@ export default {
           );
         });
         
+        // Prune rows past the retention window as part of the same batch, so
+        // cleanup rides along with each ingest call and needs no separate
+        // schedule (same approach as ingestMetrics in ssf_metrics_dashboard.ts).
+        const retentionCutoff = new Date();
+        retentionCutoff.setMonth(retentionCutoff.getMonth() - SESSIONS_HISTORY_RETENTION_MONTHS);
+        statements.push(
+          env.DB.prepare(`DELETE FROM SESSIONS_SCHEDULE_HISTORY WHERE UPDATED_AT < ?`).bind(retentionCutoff.toISOString())
+        );
+
         // Execute batch insert
         const results = await env.DB.batch(statements);
-        
-        return new Response(JSON.stringify({ 
-          success: true, 
+
+        return new Response(JSON.stringify({
+          success: true,
           inserted: body.length,
-          results 
+          results
         }), {
           status: 201,
           headers: {
