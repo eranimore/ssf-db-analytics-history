@@ -102,6 +102,7 @@ function renderTile(canvas, rows, allPoolsSorted, rangeMin, rangeMax) {
 				},
 				y: {
 					beginAtZero: true,
+					grace: "10%",
 					ticks: { color: TEXT_MUTED, precision: 0 },
 					grid: { color: GRIDLINE },
 				},
