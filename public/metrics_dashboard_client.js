@@ -20,6 +20,11 @@ const TEXT_SECONDARY = "#c3c2b7";
 const TEXT_MUTED = "#898781";
 const GRIDLINE = "#2c2c2a";
 
+// Metrics are pushed roughly hourly. If two consecutive points for a pool
+// are further apart than this, treat it as an ingestion outage and break
+// the line rather than bridging it like a normal sample gap.
+const GAP_THRESHOLD_MS = 90 * 60 * 1000;
+
 let charts = {};
 let currentHours = 168;
 
@@ -41,9 +46,8 @@ function formatLabel(isoString) {
 	return `${mm}/${dd} ${hh}:${mi}`;
 }
 
-function renderTile(canvas, rows, allPoolsSorted) {
+function renderTile(canvas, rows, allPoolsSorted, rangeMin, rangeMax) {
 	const timestamps = [...new Set(rows.map(r => r.RECORDED_AT))].sort();
-	const labels = timestamps.map(formatLabel);
 	const poolsInTile = [...new Set(rows.map(r => r.POOL_ID))].sort();
 
 	const datasets = poolsInTile.map(poolId => {
@@ -52,7 +56,7 @@ function renderTile(canvas, rows, allPoolsSorted) {
 			label: poolId,
 			data: timestamps.map(ts => {
 				const row = rows.find(r => r.RECORDED_AT === ts && r.POOL_ID === poolId);
-				return row ? row.VALUE : 0;
+				return { x: new Date(ts).getTime(), y: row ? row.VALUE : 0 };
 			}),
 			borderColor: style.color,
 			borderDash: style.borderDash,
@@ -62,6 +66,7 @@ function renderTile(canvas, rows, allPoolsSorted) {
 			pointHoverRadius: 4,
 			tension: 0,
 			fill: false,
+			spanGaps: GAP_THRESHOLD_MS,
 		};
 	});
 
@@ -70,7 +75,7 @@ function renderTile(canvas, rows, allPoolsSorted) {
 
 	charts[key] = new Chart(canvas, {
 		type: "line",
-		data: { labels, datasets },
+		data: { datasets },
 		options: {
 			responsive: true,
 			maintainAspectRatio: false,
@@ -80,10 +85,18 @@ function renderTile(canvas, rows, allPoolsSorted) {
 					position: "top",
 					labels: { color: TEXT_SECONDARY, usePointStyle: true, pointStyle: "line", boxWidth: 20 },
 				},
-				tooltip: { mode: "index", intersect: false },
+				tooltip: {
+					mode: "index",
+					intersect: false,
+					callbacks: { title: items => (items[0] ? formatLabel(new Date(items[0].parsed.x).toISOString()) : "") },
+				},
 			},
 			scales: {
 				x: {
+					type: "time",
+					time: { tooltipFormat: "MM/dd HH:mm" },
+					min: rangeMin,
+					max: rangeMax,
 					ticks: { color: TEXT_MUTED, maxRotation: 0, autoSkip: true },
 					grid: { color: GRIDLINE },
 				},
@@ -102,6 +115,9 @@ async function loadDashboard(hours) {
 	grid.classList.add("loading");
 
 	try {
+		const rangeMax = Date.now();
+		const rangeMin = rangeMax - hours * 3600 * 1000;
+
 		const res = await fetch(`/api/metrics/data?hours=${hours}`);
 		const rows = await res.json();
 		const allPoolsSorted = [...new Set(rows.map(r => r.POOL_ID))].sort();
@@ -114,7 +130,7 @@ async function loadDashboard(hours) {
 				if (dimensionValue) return r.DIMENSION_VALUE === dimensionValue;
 				return true;
 			});
-			renderTile(canvas, filtered, allPoolsSorted);
+			renderTile(canvas, filtered, allPoolsSorted, rangeMin, rangeMax);
 		});
 	} finally {
 		grid.classList.remove("loading");

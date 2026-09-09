@@ -196,7 +196,8 @@ export async function renderMetricsDashboard(): Promise<Response> {
 		}
 		canvas { width: 100% !important; height: 260px !important; }
 	</style>
-	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 	<script defer src="/metrics_dashboard_client.js"></script>
 </head>
 <body>
