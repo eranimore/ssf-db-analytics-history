@@ -17,7 +17,7 @@ export async function daySnapshot(request: Request, env: any, ctx: ExecutionCont
 		|| dates.some(d => !/^\d{4}-\d{2}-\d{2}$/.test(d))) {
 		return new Response(JSON.stringify({
 			success: false,
-			error: `Use ?poolid=xxx&dates=yyyy-mm-dd[,yyyy-mm-dd...] (max ${MAX_DATES} dates)`
+			error: `Use ?poolid=xxx&dates=yyyy-mm-dd[,yyyy-mm-dd...][&refresh=1] (max ${MAX_DATES} dates)`
 		}), {
 			status: 400,
 			headers: { "content-type": "application/json" },
@@ -28,11 +28,16 @@ export async function daySnapshot(request: Request, env: any, ctx: ExecutionCont
 	// yyyy-mm-dd -> dd-mm-yyyy (SESSION_DATE storage format)
 	const toSessionDate = (date: string) => date.split('-').reverse().join('-');
 
-	const cached: (string | null)[] = await Promise.all(dates.map(d => env.SNAPSHOT_CACHE.get(cacheKey(d))));
+	// ?refresh=1 skips the cache read, so all dates are fetched from D1 and re-cached
+	const refresh = url.searchParams.get('refresh') === '1';
+
 	const rowsByDate: Record<string, any[]> = {};
-	dates.forEach((d, i) => {
-		if (cached[i] !== null) rowsByDate[d] = JSON.parse(cached[i]!);
-	});
+	if (!refresh) {
+		const cached: (string | null)[] = await Promise.all(dates.map(d => env.SNAPSHOT_CACHE.get(cacheKey(d))));
+		dates.forEach((d, i) => {
+			if (cached[i] !== null) rowsByDate[d] = JSON.parse(cached[i]!);
+		});
+	}
 
 	const missedDates = dates.filter(d => !rowsByDate[d]);
 	if (missedDates.length > 0) {
