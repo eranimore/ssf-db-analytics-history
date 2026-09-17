@@ -33,7 +33,7 @@ export async function daySnapshot(request: Request, env: any, ctx: ExecutionCont
 
 	const rowsByDate: Record<string, any[]> = {};
 	if (!refresh) {
-		const cached: (string | null)[] = await Promise.all(dates.map(d => env.SNAPSHOT_CACHE.get(cacheKey(d))));
+		const cached: (string | null)[] = await Promise.all(dates.map(d => env.SSF_HISOTRY_SNAPSHOT_CACHE.get(cacheKey(d))));
 		dates.forEach((d, i) => {
 			if (cached[i] !== null) rowsByDate[d] = JSON.parse(cached[i]!);
 		});
@@ -73,7 +73,7 @@ ORDER BY SESSION_DATETIME, SESSION_SIDE, SESSION_TITLE
 			// Cache only once the date's last session is well in the past (and not empty)
 			const lastSessionDateTime = rows.length > 0 ? rows[rows.length - 1].SESSION_DATETIME : null;
 			if (lastSessionDateTime && lastSessionDateTime <= settledBefore) {
-				ctx.waitUntil(env.SNAPSHOT_CACHE.put(cacheKey(date), JSON.stringify(rows), { expirationTtl: CACHE_TTL_SECONDS }));
+				ctx.waitUntil(env.SSF_HISOTRY_SNAPSHOT_CACHE.put(cacheKey(date), JSON.stringify(rows), { expirationTtl: CACHE_TTL_SECONDS }));
 			}
 		}
 	}

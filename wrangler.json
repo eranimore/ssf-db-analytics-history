@@ -12,8 +12,8 @@
   ],
   "kv_namespaces": [
     {
-      "binding": "SNAPSHOT_CACHE",
-      "id": "<SNAPSHOT_CACHE_NAMESPACE_ID>"
+      "binding": "SSF_HISOTRY_SNAPSHOT_CACHE",
+      "id": "0c0acc2936e5416480c1f8dc8c1805c0"
     }
   ],
   "assets": {

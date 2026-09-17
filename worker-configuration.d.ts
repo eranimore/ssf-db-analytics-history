@@ -5,7 +5,7 @@ declare namespace Cloudflare {
 	interface Env {
 		DB: D1Database;
 		ASSETS: Fetcher;
-		SNAPSHOT_CACHE: KVNamespace;
+		SSF_HISOTRY_SNAPSHOT_CACHE: KVNamespace;
 	}
 }
 interface Env extends Cloudflare.Env {}
