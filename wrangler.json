@@ -10,6 +10,12 @@
       "database_name": "ssf_history"
     }
   ],
+  "kv_namespaces": [
+    {
+      "binding": "SNAPSHOT_CACHE",
+      "id": "<SNAPSHOT_CACHE_NAMESPACE_ID>"
+    }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"

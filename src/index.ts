@@ -1,6 +1,7 @@
 import { renderHtml } from "./renderHtml";
 import { seoContentForDatesHighlights } from "./ssf_seo_input_for_posts";
 import { ingestMetrics, getMetricsData, renderMetricsDashboard } from "./ssf_metrics_dashboard";
+import { daySnapshot } from "./ssf_day_snapshot";
 
 interface SessionScheduleHistory {
   POOL_ID?: string | null;
@@ -21,7 +22,7 @@ interface SessionScheduleHistory {
 const SESSIONS_HISTORY_RETENTION_MONTHS = 12;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     
     // Handle POST requests to insert sessions
@@ -123,6 +124,11 @@ export default {
     // Handle GET requests for SEO content - dates vacancies
     if (request.method === "GET" && url.pathname === "/api/ssf-seo-post-content/dates-vacancies") {
       return await seoContentForDatesHighlights(request, env);
+    }
+
+    // Handle GET requests for a pool's session snapshot on past dates (KV cached)
+    if (request.method === "GET" && url.pathname === "/api/sessions/day-snapshot") {
+      return await daySnapshot(request, env, ctx);
     }
 
     // Handle metrics ingestion (replaces the CloudWatch push) and dashboard
