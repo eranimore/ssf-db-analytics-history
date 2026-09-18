@@ -5,7 +5,8 @@
 
 const MAX_DATES = 31;
 const SETTLE_HOURS = 12;
-const CACHE_TTL_SECONDS = 7 * 24 * 3600;
+// Settled days never change - keep them as long as SESSIONS_SCHEDULE_HISTORY retains them (12 months)
+const CACHE_TTL_SECONDS = 365 * 24 * 3600;
 
 export async function daySnapshot(request: Request, env: any, ctx: ExecutionContext): Promise<Response> {
 	const url = new URL(request.url);
