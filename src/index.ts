@@ -2,6 +2,7 @@ import { renderHtml } from "./renderHtml";
 import { seoContentForDatesHighlights } from "./ssf_seo_input_for_posts";
 import { ingestMetrics, getMetricsData, renderMetricsDashboard } from "./ssf_metrics_dashboard";
 import { daySnapshot } from "./ssf_day_snapshot";
+import { spotsAvailableHeatmap } from "./ssf_spots_available_heatmap";
 
 interface SessionScheduleHistory {
   POOL_ID?: string | null;
@@ -129,6 +130,11 @@ export default {
     // Handle GET requests for a pool's session snapshot on past dates (KV cached)
     if (request.method === "GET" && url.pathname === "/api/sessions/day-snapshot") {
       return await daySnapshot(request, env, ctx);
+    }
+
+    // Handle GET requests for a pool's spots-available statistics over a date range (KV cached)
+    if (request.method === "GET" && url.pathname === "/api/sessions/spots-available-heatmap") {
+      return await spotsAvailableHeatmap(request, env, ctx);
     }
 
     // Handle metrics ingestion (replaces the CloudWatch push) and dashboard
