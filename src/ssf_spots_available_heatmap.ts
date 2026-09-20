@@ -2,6 +2,10 @@
 // Spots-available statistics of a single pool over a date range, per weekday x time slot
 // (broken down by title and side, so clients can filter levels without re-querying).
 // "Spots available" means the session's latest scrape showed AVAILABLE_SPOTS > 0.
+// spotsSum/freshSessions carry HOW MANY spots were free, over fresh sessions only: a scrape
+// more than STALE_AFTER_MINUTES before the start missed later bookings, so its count runs high
+// (Tel Aviv: 14.4 free spots on average when stale, 4.0 when fresh). That barely moves a
+// yes/no count but would wreck an average, so stale rows are left out of these two fields.
 // Built from the day-snapshot rows (KV cached per day); the result is cached in KV per input values.
 // All dates/times are handled as plain strings - no timezone conversions.
 
@@ -12,6 +16,14 @@ import { getDayRows, MAX_DATES } from "./ssf_day_snapshot";
 // whole month - keep it a bit longer than any month.
 const STATS_TTL_SETTLED_SECONDS = 35 * 24 * 3600;
 const STATS_TTL_OPEN_SECONDS = 3600;
+
+// A session whose last scrape is this long before its start has an unreliable AVAILABLE_SPOTS
+const STALE_AFTER_MINUTES = 120;
+
+// SESSION_DATETIME is UTC without a "Z"; without it Date.parse reads it as the server's local time
+function isStale(row: any): boolean {
+	return (Date.parse(row.SESSION_DATETIME + 'Z') - Date.parse(row.UPDATED_AT)) / 60_000 > STALE_AFTER_MINUTES;
+}
 
 // yyyy-mm-dd dates from..to inclusive (UTC only as calendar arithmetic)
 function dateRange(from: string, to: string): string[] {
@@ -41,7 +53,7 @@ export async function spotsAvailableHeatmap(request: Request, env: any, ctx: Exe
 	}
 
 	const headers = { "content-type": "application/json", "access-control-allow-origin": "*" };
-	const cacheKey = `spots-available-heatmap:v1:${poolId}:${from}:${to}`;
+	const cacheKey = `spots-available-heatmap:v2:${poolId}:${from}:${to}`;
 
 	// ?refresh=1 recomputes the statistics (day rows still come from their own cache)
 	if (url.searchParams.get('refresh') !== '1') {
@@ -59,7 +71,7 @@ export async function spotsAvailableHeatmap(request: Request, env: any, ctx: Exe
 		});
 	}
 
-	const cells = new Map<string, { weekday: number, time: string, title: string, side: string, sessions: number, spotsAvailable: number, days: number }>();
+	const cells = new Map<string, { weekday: number, time: string, title: string, side: string, sessions: number, spotsAvailable: number, spotsSum: number, freshSessions: number, days: number }>();
 	const lastDateByKey = new Map<string, string>();
 	for (const date of dates) {
 		const weekday = new Date(date + 'T00:00:00Z').getUTCDay(); // 0 = Sunday
@@ -67,11 +79,16 @@ export async function spotsAvailableHeatmap(request: Request, env: any, ctx: Exe
 			const key = `${weekday}|${row.SESSION_TIME}|${row.SESSION_TITLE}|${row.SESSION_SIDE}`;
 			let cell = cells.get(key);
 			if (!cell) {
-				cell = { weekday, time: row.SESSION_TIME, title: row.SESSION_TITLE, side: row.SESSION_SIDE, sessions: 0, spotsAvailable: 0, days: 0 };
+				cell = { weekday, time: row.SESSION_TIME, title: row.SESSION_TITLE, side: row.SESSION_SIDE, sessions: 0, spotsAvailable: 0, spotsSum: 0, freshSessions: 0, days: 0 };
 				cells.set(key, cell);
 			}
 			cell.sessions++;
 			if (row.AVAILABLE_SPOTS > 0) cell.spotsAvailable++;
+			if (!isStale(row)) {
+				cell.freshSessions++;
+				// AVAILABLE_SPOTS goes negative when a pool overbooks; that still means no room
+				cell.spotsSum += Math.max(0, row.AVAILABLE_SPOTS);
+			}
 			// days = distinct dates the cell had sessions on
 			if (lastDateByKey.get(key) !== date) {
 				lastDateByKey.set(key, date);
