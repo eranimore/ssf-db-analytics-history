@@ -2,10 +2,11 @@
 // Spots-available statistics of a single pool over a date range, per weekday x time slot
 // (broken down by title and side, so clients can filter levels without re-querying).
 // "Spots available" means the session's latest scrape showed AVAILABLE_SPOTS > 0.
-// spotsSum/freshSessions carry HOW MANY spots were free, over fresh sessions only: a scrape
-// more than STALE_AFTER_MINUTES before the start missed later bookings, so its count runs high
-// (Tel Aviv: 14.4 free spots on average when stale, 4.0 when fresh). That barely moves a
-// yes/no count but would wreck an average, so stale rows are left out of these two fields.
+// Stale sessions are left out entirely: a scrape more than STALE_AFTER_MINUTES before the start
+// missed later bookings, so it reports free spots the session may not have had (Tel Aviv: 14.4
+// free spots on average when stale, 4.0 when fresh). Their availability is unknown, not "yes".
+// spotsSum/freshSessions carry HOW MANY spots were free (freshSessions equals sessions now;
+// kept for existing clients).
 // Built from the day-snapshot rows (KV cached per day); the result is cached in KV per input values.
 // All dates/times are handled as plain strings - no timezone conversions.
 
@@ -53,7 +54,7 @@ export async function spotsAvailableHeatmap(request: Request, env: any, ctx: Exe
 	}
 
 	const headers = { "content-type": "application/json", "access-control-allow-origin": "*" };
-	const cacheKey = `spots-available-heatmap:v2:${poolId}:${from}:${to}`;
+	const cacheKey = `spots-available-heatmap:v3:${poolId}:${from}:${to}`;
 
 	// ?refresh=1 recomputes the statistics (day rows still come from their own cache)
 	if (url.searchParams.get('refresh') !== '1') {
@@ -76,6 +77,7 @@ export async function spotsAvailableHeatmap(request: Request, env: any, ctx: Exe
 	for (const date of dates) {
 		const weekday = new Date(date + 'T00:00:00Z').getUTCDay(); // 0 = Sunday
 		for (const row of rowsByDate[date]) {
+			if (isStale(row)) continue;
 			const key = `${weekday}|${row.SESSION_TIME}|${row.SESSION_TITLE}|${row.SESSION_SIDE}`;
 			let cell = cells.get(key);
 			if (!cell) {
@@ -84,11 +86,9 @@ export async function spotsAvailableHeatmap(request: Request, env: any, ctx: Exe
 			}
 			cell.sessions++;
 			if (row.AVAILABLE_SPOTS > 0) cell.spotsAvailable++;
-			if (!isStale(row)) {
-				cell.freshSessions++;
-				// AVAILABLE_SPOTS goes negative when a pool overbooks; that still means no room
-				cell.spotsSum += Math.max(0, row.AVAILABLE_SPOTS);
-			}
+			cell.freshSessions++;
+			// AVAILABLE_SPOTS goes negative when a pool overbooks; that still means no room
+			cell.spotsSum += Math.max(0, row.AVAILABLE_SPOTS);
 			// days = distinct dates the cell had sessions on
 			if (lastDateByKey.get(key) !== date) {
 				lastDateByKey.set(key, date);
